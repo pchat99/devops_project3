@@ -1,0 +1,115 @@
+job("task6_job1"){
+description ("it will pull code from GitHub and and build and push dockerfile to hub")
+  scm {
+    github('pchat99/task4','master')
+  }
+  triggers {
+          githubPush()
+  }
+  
+  wrappers {
+    preBuildCleanup()
+  }
+  
+  steps {
+    dockerBuildAndPublish {
+      repositoryName('chatpc99/web2')
+      tag("latest")
+      dockerHostURI('tcp://0.0.0.0:2344')
+      registryCredentials('docker')
+      forcePull(false)
+      createFingerprints(false)
+      skipDecorate()
+      }
+    }
+}
+
+
+job("task6_job2"){
+description ("Jenkins will automatically start the respective language interpreter installed image container to deploy code on top of k8s.")
+  label('sshd')
+  triggers {
+    upstream ('task6_job1' , 'SUCCESS')
+  }
+  wrappers {
+    preBuildCleanup()
+  }
+  steps {
+    shell('''cd /root/.kube
+if kubectl get deployments | grep web-deploy
+then
+echo "Deployment exists"
+kubectl replace -f /root/.kube/web-deploy.yml
+else
+kubectl create -f /root/.kube/web-deploy.yml
+kubectl expose deployment web-deploy --port=80 --type=NodePort
+kubectl get all
+fi''')
+  }
+}
+
+job("task6_job3"){
+description ("This job will test whether the pod are working fine or not and it will send a mail to the developer")
+  triggers {
+    upstream ('task6_job2' , 'SUCCESS')
+  }
+  steps {
+    shell('''if sudo kubectl get deployments web-deploy
+then
+echo "Send to production"
+exit 0
+else
+echo "Sending back to developer"
+exit 1
+fi''')
+  }
+  publishers {
+    extendedEmail {
+      contentType('text/html')
+      triggers {
+        success {
+          attachBuildLog(true)
+          subject('Build successful')
+          content('The build was successful and pods are deployed and running successful.')
+          recipientList('pchaturvedi19989@gmail.com')
+        }
+        failure{
+          attachBuildLog(true)
+          subject('Failed build')
+          content('The build was failed')
+          recipientList('pchaturvedi19989@gmail.com')
+        }
+      }
+    }
+  }
+}
+
+
+job("task6_job4"){
+description ("This job will keep on checking the website, whether it is working fine or not. If any error, it will notify the developer through email")
+  triggers {
+    upstream ('task6_job3' , 'SUCCESS')
+  }
+  steps {
+    shell('''curl 192.168.99.100:''')
+  }
+  publishers {
+    extendedEmail {
+      contentType('text/html')
+      triggers {
+        success {
+          attachBuildLog(true)
+          subject('Running successfully')
+          content('Website is running fine')
+          recipientList('pchaturvedi19989@gmail.com')
+        }
+        failure{
+          attachBuildLog(true)
+          subject('Error')
+          content('Website is not running. Please check!')
+          recipientList('pchaturvedi19989@gmail.com')
+        }
+      }
+    }
+  }
+}
